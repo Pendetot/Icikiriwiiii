@@ -50,6 +50,8 @@ read -r RAM_INPUT
 read -r CPU_INPUT  
 read -r STORAGE_INPUT
 read -r PASSWORD_INPUT
+read -r IS_ARM
+read -r SUPPORTS_KVM
 
 # Map Windows ID to version
 case $WINDOWS_ID in
@@ -81,8 +83,26 @@ DISK_SIZE="${STORAGE_INPUT}G"
 USERNAME="Administrator"
 PASSWORD="$PASSWORD_INPUT"
 
+# Detect architecture and KVM support info
+ARCH_INFO=""
+KVM_INFO=""
+
+if [[ "$IS_ARM" == "1" ]]; then
+    ARCH_INFO="ARM architecture detected"
+else
+    ARCH_INFO="x86_64 architecture detected"
+fi
+
+if [[ "$SUPPORTS_KVM" == "1" ]]; then
+    KVM_INFO="KVM acceleration available"
+else
+    KVM_INFO="KVM acceleration not available (using software emulation)"
+fi
+
+echo "System Information:"
+echo "  $ARCH_INFO"
+echo "  $KVM_INFO"
 echo "Configuration:"
-echo "  Version: $VERSION"
 echo "  RAM: $RAM_SIZE"
 echo "  CPU: $CPU_CORES_SET cores"
 echo "  Storage: $DISK_SIZE"
@@ -97,31 +117,73 @@ cd /opt/windows-docker
 # Remove existing container if present
 docker rm -f windows 2>/dev/null || true
 
+# Configure Docker run parameters based on architecture and KVM support
+DOCKER_PARAMS=""
+
+if [[ "$SUPPORTS_KVM" == "1" ]]; then
+    DOCKER_PARAMS="--device=/dev/kvm"
+    echo "  Using KVM acceleration for better performance"
+else
+    echo "  Using software emulation (slower performance)"
+fi
+
+if [[ "$IS_ARM" == "1" ]]; then
+    echo "  Optimized for ARM architecture"
+else
+    echo "  Optimized for x86_64 architecture"
+fi
+
 echo "Starting Windows container..."
 
-# Run Windows container
-docker run -d \
-    --name windows \
-    --device=/dev/kvm \
-    --device=/dev/net/tun \
-    --cap-add NET_ADMIN \
-    -p 8006:8006 \
-    -p 3389:3389/tcp \
-    -p 3389:3389/udp \
-    -v "${PWD}/windows:/storage" \
-    -v "${PWD}/shared:/data" \
-    -e VERSION="${VERSION}" \
-    -e USERNAME="${USERNAME}" \
-    -e PASSWORD="${PASSWORD}" \
-    -e RAM_SIZE="${RAM_SIZE}" \
-    -e CPU_CORES="${CPU_CORES_SET}" \
-    -e DISK_SIZE="${DISK_SIZE}" \
-    -e LANGUAGE="English" \
-    -e REGION="en-US" \
-    -e KEYBOARD="en-US" \
-    --restart always \
-    --stop-timeout 120 \
-    dockurr/windows
+# Run Windows container with conditional KVM support
+if [[ "$SUPPORTS_KVM" == "1" ]]; then
+    # With KVM acceleration
+    docker run -d \
+        --name windows \
+        --device=/dev/kvm \
+        --device=/dev/net/tun \
+        --cap-add NET_ADMIN \
+        -p 8006:8006 \
+        -p 3389:3389/tcp \
+        -p 3389:3389/udp \
+        -v "${PWD}/windows:/storage" \
+        -v "${PWD}/shared:/data" \
+        -e VERSION="${VERSION}" \
+        -e USERNAME="${USERNAME}" \
+        -e PASSWORD="${PASSWORD}" \
+        -e RAM_SIZE="${RAM_SIZE}" \
+        -e CPU_CORES="${CPU_CORES_SET}" \
+        -e DISK_SIZE="${DISK_SIZE}" \
+        -e LANGUAGE="English" \
+        -e REGION="en-US" \
+        -e KEYBOARD="en-US" \
+        --restart always \
+        --stop-timeout 120 \
+        dockurr/windows
+else
+    # Without KVM acceleration (software emulation)
+    docker run -d \
+        --name windows \
+        --device=/dev/net/tun \
+        --cap-add NET_ADMIN \
+        -p 8006:8006 \
+        -p 3389:3389/tcp \
+        -p 3389:3389/udp \
+        -v "${PWD}/windows:/storage" \
+        -v "${PWD}/shared:/data" \
+        -e VERSION="${VERSION}" \
+        -e USERNAME="${USERNAME}" \
+        -e PASSWORD="${PASSWORD}" \
+        -e RAM_SIZE="${RAM_SIZE}" \
+        -e CPU_CORES="${CPU_CORES_SET}" \
+        -e DISK_SIZE="${DISK_SIZE}" \
+        -e LANGUAGE="English" \
+        -e REGION="en-US" \
+        -e KEYBOARD="en-US" \
+        --restart always \
+        --stop-timeout 120 \
+        dockurr/windows
+fi
 
 # Get server IP
 SERVER_IP=$(curl -s ifconfig.me 2>/dev/null || curl -s ipinfo.io/ip 2>/dev/null || echo "YOUR_SERVER_IP")
